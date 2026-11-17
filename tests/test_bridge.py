@@ -367,6 +367,8 @@ class GagSoundTest(unittest.TestCase):
         self.timers = []
         self.patches.append(mock.patch.object(bridge.threading, "Timer", side_effect=lambda d, fn, args: self.timers.append((d, fn, args)) or mock.Mock()))
         self.patches[-1].start()
+        self.patches.append(mock.patch.object(bridge.sys, "platform", "darwin"))   # afplay, whatever runs the tests
+        self.patches[-1].start()
         self.s = bridge.Sounds()
 
     def tearDown(self):
@@ -387,6 +389,16 @@ class GagSoundTest(unittest.TestCase):
         d, cmd = self.fire()
         self.assertAlmostEqual(d, bridge.GAG_LEAD - bridge.AFPLAY_LAG)
         self.assertEqual(cmd, ["afplay", "-v", "0.4", os.path.join(self.dir, "tap_shock.wav")])
+
+    def test_on_linux_it_plays_through_pipewire_pulseaudio_or_alsa(self):
+        path = os.path.join(self.dir, "tap_shock.wav")
+        with mock.patch.object(bridge.sys, "platform", "linux"):
+            for have, command in [({"pw-play"}, ["pw-play", "--volume", "0.4", path]),
+                                  ({"paplay"}, ["paplay", "--volume=26214", path]),
+                                  (set(), ["aplay", "-q", path])]:
+                with mock.patch("shutil.which", lambda name: name in have and "/usr/bin/" + name):
+                    self.s.play_gag("tap_shock_idle")
+                    self.assertEqual(self.fire()[1], command)
 
     def test_volume_is_read_when_the_sound_starts(self):
         self.s.play_gag("tap_shock_working")

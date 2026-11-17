@@ -8,6 +8,8 @@
 # Uninstall: tools/install_bridge.sh --uninstall
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# On Linux, a systemd user service, and no app watcher: Chat and Cowork are Mac apps.
+[ "$(uname)" = Linux ] && exec "$ROOT/tools/install_bridge_linux.sh" "$@"
 RT="$HOME/.desk-buddy"
 LABEL="com.deskbuddy.bridge"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"

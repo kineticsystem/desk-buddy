@@ -504,6 +504,9 @@ class Focus:
 
     def _run(self):
         import subprocess
+        if sys.platform != "darwin":
+            log.info("focus check: only on a Mac (lsappinfo), so Claude is never taken as in front")
+            return
         while True:
             try:
                 info = subprocess.run(["lsappinfo", "info", "-only", "bundleid", "-only", "pid", subprocess.run(["lsappinfo", "front"], capture_output=True, text=True).stdout.strip()],
@@ -515,8 +518,23 @@ class Focus:
             time.sleep(1.5)
 
 
+def play_wav(path, volume):
+    """Starts playing a WAV file at `volume` (1.0 as recorded): with afplay on a Mac; on Linux with PipeWire's
+    pw-play, PulseAudio's paplay, or ALSA's aplay, which has no volume. Returns the process."""
+    import shutil
+    if sys.platform == "darwin":
+        command = ["afplay", "-v", str(volume), path]
+    elif shutil.which("pw-play"):
+        command = ["pw-play", "--volume", str(volume), path]
+    elif shutil.which("paplay"):
+        command = ["paplay", f"--volume={round(65536 * volume)}", path]
+    else:
+        command = ["aplay", "-q", path]
+    return subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 class Sounds:
-    """Plays Lump's voice through afplay. Settings are re-read whenever sounds.json changes, so
+    """Plays Lump's voice through afplay, or on Linux pw-play, paplay or aplay (play_wav). Settings are re-read whenever sounds.json changes, so
     flipping "enabled" (Claude Switcher, POST /sound, or by hand) takes effect immediately.
       {"enabled": true, "volume": 1.0, "quiet_at_night": true,
        "moments": {"needs_you": {"on": true, "pick": ["a", "c"]}, ...}}
@@ -578,10 +596,9 @@ class Sounds:
             if self.proc and self.proc.poll() is None:
                 self.proc.terminate()                         # one voice at a time
             try:
-                self.proc = subprocess.Popen(["afplay", "-v", str(cfg.get("volume", 1.0)), path],
-                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.proc = play_wav(path, cfg.get("volume", 1.0))
             except Exception as e:
-                log.info("afplay failed: %s", e); return False
+                log.info("playing %s failed: %s", path, e); return False
             self.last_any = self.last_at[moment] = now
             self.last_pick[moment] = k
             log.info("sound %s %s", moment, k)
@@ -621,9 +638,9 @@ class Sounds:
             if self.proc and self.proc.poll() is None:
                 self.proc.terminate()                         # one voice at a time
             try:
-                self.proc = subprocess.Popen(["afplay", "-v", str(volume), path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.proc = play_wav(path, volume)
             except Exception as e:
-                log.info("afplay failed: %s", e); return
+                log.info("playing %s failed: %s", path, e); return
             self.last_any = time.time()
             log.info("sound gag %s (volume %s)", gag, volume)
 

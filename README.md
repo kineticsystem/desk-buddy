@@ -25,7 +25,7 @@ You’ll need:
 
 - A **Waveshare / SpotPear ESP32-S3-LCD-1.3** prism display. The one used here is the **ESP32-S3-LCD-1.3-C** option from [this listing](https://www.aliexpress.com/item/1005009887388696.html). Keep the stock case if you want to use the [3D-printable monitor mount](enclosure/print/).
 - A **USB-C data cable** for the first flash.
-- A **Mac** to run the bridge, and **Claude Code**. The Claude desktop app is optional and adds Chat and Cowork status.
+- A **Mac** or a **Linux** computer to run the bridge, and **Claude Code**. On a Mac, the Claude desktop app is optional and adds Chat and Cowork status.
 - **Python 3**, [PlatformIO](https://platformio.org/) (`brew install platformio`), and the Xcode command line tools (`xcode-select --install`).
 
 ```bash
@@ -34,7 +34,7 @@ cd desk-buddy
 ```
 
 1. **Flash the display.** Plug it in and run `tools/flash.sh`. The script paces the upload because this board’s USB-serial chip can drop bytes during a standard PlatformIO upload on macOS.
-2. **Install the Mac bridge.** Run `tools/install_bridge.sh`. It installs the bridge and a helper under `~/.desk-buddy`. If you use the Claude desktop app, allow `deskbuddy-appwatch` under **System Settings → Privacy & Security → Accessibility** so it can read Chat and Cowork status.
+2. **Install the bridge.** Run `tools/install_bridge.sh`. On a Mac, it installs the bridge and a helper under `~/.desk-buddy`. If you use the Claude desktop app, allow `deskbuddy-appwatch` under **System Settings → Privacy & Security → Accessibility** so it can read Chat and Cowork status. On Linux, it installs the bridge as the systemd user service `deskbuddy-bridge`, which starts at login; Lump speaks through `pw-play`, `paplay` or `aplay`. Chat and Cowork status, and knowing whether Claude’s window is in front, are Mac-only. For the USB cable, add yourself to the `dialout` group (`sudo usermod -aG dialout $USER`) and log in again. The logs are in `~/.desk-buddy/bridge.log`, or `journalctl --user -u deskbuddy-bridge`.
 3. **Connect Claude Code.** Run `python3 tools/install_hooks.py`. This backs up `~/.claude/settings.json`, keeps your existing hooks, and adds the session hooks and usage status line. Start a Claude Code session and Lump should wake up.
 4. **Set up Wi-Fi if you want clips or wireless updates.** Leave the USB cable connected and run `~/.desk-buddy/venv/bin/python tools/wifi_setup.py`. Use a 2.4 GHz network. The script sends the password directly to the board over USB. Once Lump shows up as `lump.local`, you can power him from a USB charger or a monitor port and update him with `python3 tools/ota.py`.
 
@@ -74,7 +74,7 @@ python3 tools/export_quilt.py --all   # Requires Google Chrome, FFmpeg, and idea
 python3 tools/holo_sync.py --url http://holo.local:8095
 ```
 
-Then add `"holo_url": "http://holo.local:8095"` to `~/.desk-buddy/config.json`. The bridge drives the Looking Glass alongside the desk display, which doesn't need to be there. Baking skips what hasn't changed, so after a new clip, run both commands again. One clip is enough to try it: `python3 tools/export_quilt.py coffee --upload holo.local`.
+Then add `"holo_url": "http://holo.local:8095"` to `~/.desk-buddy/config.json`. The bridge drives the Looking Glass alongside the desk display, which doesn’t need to be there. The bridge reads the list of videos from `~/.desk-buddy/quilts/index.json`, so if it runs on another computer than the bake, copy that file there. Baking skips what hasn't changed, so after a new clip, run both commands again. One clip is enough to try it: `python3 tools/export_quilt.py coffee --upload holo.local`.
 
 The videos can't show what the board draws from live data: his usage colour and the counters in the corners.
 
@@ -109,7 +109,7 @@ When you’re happy with the result, bake it with `python3 tools/export_frames.p
 
 | Path | What’s there |
 |---|---|
-| [`tools/buddy_bridge.py`](tools/buddy_bridge.py) | The Mac bridge. It combines Claude’s session events and optional inputs into a state for the display. |
+| [`tools/buddy_bridge.py`](tools/buddy_bridge.py) | The bridge, on a Mac or Linux. It combines Claude’s session events and optional inputs into a state for the display. |
 | [`tools/appwatch/`](tools/appwatch/) | The Swift helper that reads Chat and Cowork status. |
 | [`firmware/src/main.cpp`](firmware/src/main.cpp) and [`firmware/src/vec.h`](firmware/src/vec.h) | The frame player, drawing code, and device protocol. |
 | [`tools/export_frames.py`](tools/export_frames.py) | The frame exporter and renderer checks. |
