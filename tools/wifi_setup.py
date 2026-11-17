@@ -18,6 +18,17 @@ HOME = os.path.expanduser("~/.desk-buddy")
 CONFIG = os.path.join(HOME, "config.json")
 BRIDGE = "com.deskbuddy.bridge"
 BRIDGE_PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{BRIDGE}.plist")
+LINUX_BRIDGE = "deskbuddy-bridge.service"          # tools/install_bridge_linux.sh
+
+
+def bridge(on):
+    """Starts or stops the bridge, which holds the USB port while it runs."""
+    if sys.platform == "darwin":
+        command = ["launchctl", "bootstrap", f"gui/{os.getuid()}", BRIDGE_PLIST] if on else \
+                  ["launchctl", "bootout", f"gui/{os.getuid()}/{BRIDGE}"]
+    else:
+        command = ["sudo", "systemctl", "start" if on else "stop", LINUX_BRIDGE]
+    subprocess.run(command, capture_output=sys.platform == "darwin")
 
 
 def posix_tz():
@@ -33,6 +44,9 @@ def posix_tz():
 
 def current_ssid():
     try:
+        if sys.platform != "darwin":                # NetworkManager: "yes:<ssid>" for the network in use
+            out = subprocess.run(["nmcli", "-t", "-f", "active,ssid", "dev", "wifi"], capture_output=True, text=True, timeout=5).stdout
+            return next((line[4:] for line in out.splitlines() if line.startswith("yes:")), "")
         out = subprocess.run(["ipconfig", "getsummary", "en0"], capture_output=True, text=True, timeout=3).stdout
         m = re.search(r"^\s*SSID : (.+)$", out, re.M)
         return m.group(1).strip() if m and "redacted" not in m.group(1) else ""
@@ -58,7 +72,7 @@ def read_lines(ser, until, secs):
 
 def main():
     forget = "--forget" in sys.argv
-    ports = sorted(glob.glob("/dev/cu.usbmodem*"))
+    ports = sorted(glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/ttyACM*"))    # a Mac, Linux
     if not ports:
         sys.exit("Lump isn't plugged in by USB (needs a data cable).")
     cfg = {}
@@ -81,7 +95,7 @@ def main():
         line = f"w {ssid}\t{password}\t{token}\t{tz}"
 
     # the bridge holds the USB port: pause it while we talk to the board
-    subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{BRIDGE}"], capture_output=True)
+    bridge(False)
     time.sleep(1)
     try:
         ser = serial.Serial(); ser.port, ser.baudrate, ser.timeout = ports[0], 115200, 0.3
@@ -122,7 +136,7 @@ def main():
             print("\nHe saved the details but hasn't joined yet. Check the network name and password")
             print("(and that it's a 2.4 GHz network), then run this again.")
     finally:
-        subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", BRIDGE_PLIST], capture_output=True)
+        bridge(True)
 
 
 if __name__ == "__main__":

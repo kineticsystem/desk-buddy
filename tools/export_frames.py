@@ -200,7 +200,9 @@ def encode(calls):
 
 def check(frames):
     """How well vec.h redraws each (instructions, rgba): a list of (mean % difference, far pixels, overflowed)."""
-    exe = os.path.join(tempfile.gettempdir(), "lump_vec_check")
+    # In a folder of our own: a file another user left in /tmp under this name would run as us.
+    exe = os.path.join(os.path.expanduser("~/.cache/desk-buddy"), "lump_vec_check")
+    os.makedirs(os.path.dirname(exe), mode=0o700, exist_ok=True)
     src = os.path.join(ROOT, "tools", "vec_check.cpp"); hdr = os.path.join(ROOT, "firmware", "src", "vec.h")
     if not os.path.exists(exe) or os.path.getmtime(exe) < max(os.path.getmtime(src), os.path.getmtime(hdr)):
         subprocess.run(["clang++", "-O2", "-std=c++17", "-I", os.path.dirname(hdr), src, "-o", exe], check=True)

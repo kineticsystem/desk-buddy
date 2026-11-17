@@ -222,7 +222,8 @@ class Device:
 
     @staticmethod
     def usb_ports():
-        return sorted(glob.glob("/dev/cu.usbmodem*"))
+        # The ESP32-S3's own USB: /dev/cu.usbmodem* on a Mac, /dev/ttyACM* on Linux.
+        return sorted(glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/ttyACM*"))
 
     def _targets(self):
         if os.environ.get("DESKBUDDY_PORT"):
@@ -1681,15 +1682,29 @@ class SlackWatch:
 buddy = None
 
 
+LOCAL_HOSTS = {f"127.0.0.1:{HTTP_PORT}", f"localhost:{HTTP_PORT}", "127.0.0.1", "localhost"}
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
+
+    def _local(self):
+        """Only programs on this computer, never a web page: the hooks, the status line and curl send no Origin,
+        while a browser always sends one with a cross-site POST; and a page that rebinds its own name to
+        127.0.0.1 still sends its own Host. Answers 403 otherwise."""
+        if self.headers.get("Host", "").lower() in LOCAL_HOSTS and "Origin" not in self.headers:
+            return True
+        self._reply(403, b"only for programs on this computer")
+        return False
 
     def _reply(self, code, body=b"", ctype="text/plain"):
         self.send_response(code); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
+        if not self._local():
+            return
         if self.path == "/hook":
             self._reply(204)                      # answer first so the hook never waits on us
             try: buddy.hook(json.loads(body or b"{}"))
@@ -1707,7 +1722,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path == "/calendar":            # re-read the calendar now
             buddy.calendar.refresh_now(); self._reply(200, b"refreshing")
         elif self.path == "/cmd":
-            ok = buddy.dev.send(body.decode().strip()); self._reply(200 if ok else 503, b"ok" if ok else b"board not connected")
+            cmd = body.decode().strip()
+            if "\n" in cmd or "\r" in cmd:         # he splits on line breaks: one command a request
+                return self._reply(400, b"one command, on one line")
+            if cmd.startswith("w"):                 # his Wi-Fi and pairing token: only tools/wifi_setup.py, over USB
+                return self._reply(403, b"w is for tools/wifi_setup.py only")
+            ok = buddy.dev.send(cmd); self._reply(200 if ok else 503, b"ok" if ok else b"board not connected")
         elif self.path == "/play":                # an animation by name (GET /play lists them)
             ok = buddy.play(body.decode())
             if ok is None: self._reply(404, b"no such animation (GET /play lists them)")
@@ -1726,6 +1746,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._reply(404)
 
     def do_GET(self):
+        if not self._local():
+            return
         if self.path == "/status":
             self._reply(200, json.dumps(buddy.status(), indent=2).encode(), "application/json")
         elif self.path == "/sound":

@@ -788,5 +788,59 @@ class OnTheLookingGlass(BridgeTest):
         self.assertEqual(self.played(), [])
         self.assertIsNone(self.b.play("coffee"))
 
+
+class OnlyThisComputer(unittest.TestCase):
+    """The bridge answers programs on this computer, never a web page, and keeps the board's Wi-Fi to wifi_setup."""
+
+    @classmethod
+    def setUpClass(cls):
+        import http.server, threading
+        cls.buddy = mock.Mock()
+        cls.buddy.play.return_value = True
+        cls.buddy.dev.send.return_value = True
+        cls.patch = mock.patch.object(bridge, "buddy", cls.buddy)
+        cls.patch.start()
+        cls.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), bridge.Handler)
+        cls.port = cls.server.server_address[1]
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown(); cls.server.server_close(); cls.patch.stop()
+
+    def request(self, method, path, body=None, headers=()):
+        import http.client
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        connection.putrequest(method, path, skip_host=True)
+        for name, value in dict({"Host": f"127.0.0.1:{bridge.HTTP_PORT}"}, **dict(headers)).items():
+            connection.putheader(name, value)
+        data = (body or "").encode()
+        connection.putheader("Content-Length", str(len(data)))
+        connection.endheaders(data)
+        response = connection.getresponse()
+        return response.status, response.read()
+
+    def test_a_program_here_is_answered(self):
+        self.assertEqual(self.request("POST", "/play", "coffee")[0], 200)
+        self.assertEqual(self.request("GET", "/play", headers={"Host": "localhost:47823"})[0], 200)
+
+    def test_a_web_page_is_refused(self):
+        self.buddy.reset_mock()
+        status, _ = self.request("POST", "/hook", '{"hook_event_name": "PermissionRequest"}', {"Origin": "https://evil.example"})
+        self.assertEqual(status, 403)
+        self.buddy.hook.assert_not_called()
+
+    def test_a_page_rebound_to_this_computer_is_refused(self):
+        self.assertEqual(self.request("GET", "/status", headers={"Host": "evil.example:47823"})[0], 403)
+
+    def test_his_wifi_is_not_changed_through_the_bridge(self):
+        self.buddy.reset_mock()
+        self.assertEqual(self.request("POST", "/cmd", "w evil\tpassword\ttoken1234")[0], 403)
+        self.buddy.dev.send.assert_not_called()
+        self.assertEqual(self.request("POST", "/cmd", "s idle\nw evil\tpassword\ttoken1234")[0], 400)
+        self.assertEqual(self.request("POST", "/cmd", "s idle\rw evil\tpassword\ttoken1234")[0], 400)
+        self.buddy.dev.send.assert_not_called()
+        self.assertEqual(self.request("POST", "/cmd", "c FF0000")[0], 200)
+
 if __name__ == "__main__":
     unittest.main()
