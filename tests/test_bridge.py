@@ -782,6 +782,24 @@ class OnTheLookingGlass(BridgeTest):
         self.assertTrue(self.b.play("coffee"))
         self.assertEqual(self.played()[-1], "coffee_qs8x6a0.75.mp4 then idle_qs8x6a0.75.mp4")
 
+    def test_an_event_there_is_played_without_the_board(self):
+        self.b.update()
+        self.b.dev.connected, self.b.dev.send = False, lambda cmd, quiet=False: False
+        self.INDEX_HELLO = None
+        self.assertFalse(self.b.event("hello"))               # no hello video in this index
+        self.assertTrue(self.b.play("coffee"))
+
+    def test_a_clip_baked_later_plays_there_too(self):
+        self.b.update()
+        self.assertIsNone(self.b.play("yoyo"))
+        index = dict(self.INDEX, yoyo={"file": "yoyo_qs8x6a0.75.mp4", "kind": 2, "from": "idle", "to": "idle", "ticks": 160})
+        path = os.path.join(HOME, "quilts", "index.json")
+        with open(path, "w") as f:
+            json.dump(index, f)
+        os.utime(path, (self.clock() + 60, self.clock() + 60))
+        self.assertTrue(self.b.play("yoyo"))
+        self.assertEqual(self.played()[-1], "yoyo_qs8x6a0.75.mp4 then idle_qs8x6a0.75.mp4")
+
     def test_without_holo_url_nothing_goes_there(self):
         os.remove(bridge.CONFIG_FILE)
         self.b.update()

@@ -1083,15 +1083,23 @@ class Buddy:
         """HoloPi's driver, made when config.json first names HoloPi and the quilt videos' index is there; None
         otherwise. Taking holo_url out of config.json stops it."""
         url = read_config().get("holo_url")
+        path = os.path.join(HOME, "quilts", "index.json")
+        try: stamp = os.path.getmtime(path)
+        except OSError: stamp = None
         with self.holo_lock:
             if not url:
                 self.holo_driver = None
             elif self.holo_driver is None or self.holo_url != url:
-                index = holo_driver.load_index(os.path.join(HOME, "quilts", "index.json"))
+                index = holo_driver.load_index(path)
                 if index:
                     self.holo_driver = holo_driver.HoloDriver(index, holo_driver.HoloLink(url).send)
-                    self.holo_url = url
+                    self.holo_url, self.holo_stamp = url, stamp
                     log.info("HoloPi at %s, with %d videos", url, len(index))
+            elif stamp != getattr(self, "holo_stamp", None):     # baked again: new clips, same driver
+                index = holo_driver.load_index(path)
+                if index:
+                    self.holo_driver.index, self.holo_stamp = index, stamp
+                    log.info("HoloPi: %d videos now", len(index))
             return self.holo_driver
 
     def holo_call(self, method, *args):
@@ -1218,11 +1226,11 @@ class Buddy:
         # an event plays in its home mood (oops: working, hello: idle); the board walks
         # there by itself, so re-assert our mood once it has finished
         self.next_idle = time.time() + random.uniform(*IDLE_EVERY)      # whatever it is, it counts as his thing for this minute
-        self.holo_call("event", name, time.time())
+        on_holo = self.holo_call("event", name, time.time()) is not None
         if self.dev.send("e " + name):
             self.resync_at = time.time() + 8
             return True
-        return False
+        return on_holo                          # on the Looking Glass, without the board
 
     def play(self, name):
         """An animation asked for from the computer: None if there's no such animation,
