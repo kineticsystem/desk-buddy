@@ -63,6 +63,21 @@ zsh tools/lumpbar/build.sh     # Builds and opens ~/Applications/Lump.app
 
 To start it at login, add `Lump.app` under **System Settings → General → Login Items**.
 
+### Lump on a Looking Glass
+
+He can also live in 3D on a [Looking Glass Portrait](https://lookingglassfactory.com/), driven by a Raspberry Pi 5 running [HoloPi](https://github.com/kineticsystem/holo-pi). Each of his drawings is split into layers that sit at different depths, his shadow, the props behind him, his body, his face, and his arms and props in front, so his coffee mug comes out of the glass. He stands in a little grey room whose wall sits behind the glass, with his shadow cast on it, so the depth shows as you move your head.
+
+Every animation he has, moods, transitions, gags, and clips, is baked into a quilt video, about 4 GB in all, and uploaded once to HoloPi's library. The bridge then plays them there as the board plays his frames, at once, with nothing uploaded again:
+
+```bash
+python3 tools/export_quilt.py --all   # Requires Google Chrome, FFmpeg, and ideally PyTorch with a GPU
+python3 tools/holo_sync.py --url http://holo.local:8095
+```
+
+Then add `"holo_url": "http://holo.local:8095"` to `~/.desk-buddy/config.json`. The bridge drives the Looking Glass alongside the desk display, which doesn't need to be there. Baking skips what hasn't changed, so after a new clip, run both commands again. One clip is enough to try it: `python3 tools/export_quilt.py coffee --upload holo.local`.
+
+The videos can't show what the board draws from live data: his usage colour and the counters in the corners.
+
 ## Make him do something new
 
 Open Claude Code in this repo and ask it to make Lump do something. “Make him juggle” is enough to get started. The `lump-clip` skill writes the clip, bakes it, and plays it on the display. Fast mode can get an idea onto the screen in about a minute. There’s also a mode that reviews every frame.
@@ -98,6 +113,7 @@ When you’re happy with the result, bake it with `python3 tools/export_frames.p
 | [`tools/appwatch/`](tools/appwatch/) | The Swift helper that reads Chat and Cowork status. |
 | [`firmware/src/main.cpp`](firmware/src/main.cpp) and [`firmware/src/vec.h`](firmware/src/vec.h) | The frame player, drawing code, and device protocol. |
 | [`tools/export_frames.py`](tools/export_frames.py) | The frame exporter and renderer checks. |
+| [`tools/export_quilt.py`](tools/export_quilt.py), [`tools/holo_sync.py`](tools/holo_sync.py) and [`tools/holo_driver.py`](tools/holo_driver.py) | Lump on a Looking Glass: the quilt videos in layers, their upload to HoloPi, and the bridge's routing there. |
 | [`design/device/`](design/device/) | The Blender model and video scripts. The model uses the real dimensions of the prism and plays Lump’s actual animations on its screen. |
 | [`enclosure/`](enclosure/) | The adjustable monitor mount and [ready-to-print files](enclosure/print/). |
 

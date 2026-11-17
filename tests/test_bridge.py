@@ -724,5 +724,57 @@ class FocusAcrossAccounts(unittest.TestCase):
             self.assertIsNone(self.f._front_account('"CFBundleIdentifier"="com.apple.Terminal"\n"pid"=9'))
 
 
+
+class FakeHoloLink:
+    """Stands in for holo_driver.HoloLink: keeps the requests the driver would send to HoloPi."""
+    sent = []
+    def __init__(self, url): self.url = url
+    def send(self, body): FakeHoloLink.sent.append(body)
+
+
+class OnTheLookingGlass(BridgeTest):
+    """With holo_url in config.json, the bridge drives HoloPi as well as the board."""
+    INDEX = {
+        "idle": {"file": "idle_qs8x6a0.75.mp4", "kind": 0, "from": "idle", "to": "idle", "ticks": 48},
+        "working": {"file": "working_qs8x6a0.75.mp4", "kind": 0, "from": "working", "to": "working", "ticks": 28},
+        "idle>working": {"file": "idle-to-working_qs8x6a0.75.mp4", "kind": 1, "from": "idle", "to": "working", "ticks": 24},
+        "coffee": {"file": "coffee_qs8x6a0.75.mp4", "kind": 2, "from": "idle", "to": "idle", "ticks": 136},
+    }
+
+    def setUp(self):
+        super().setUp()
+        quilts = os.path.join(HOME, "quilts")
+        os.makedirs(quilts)
+        self.addCleanup(lambda: __import__("shutil").rmtree(quilts, ignore_errors=True))
+        with open(os.path.join(quilts, "index.json"), "w") as f:
+            json.dump(self.INDEX, f)
+        with open(bridge.CONFIG_FILE, "w") as f:
+            json.dump({"holo_url": "http://holo.test:8095"}, f)
+        self.addCleanup(lambda: os.path.exists(bridge.CONFIG_FILE) and os.remove(bridge.CONFIG_FILE))
+        FakeHoloLink.sent = []
+        p = mock.patch.object(bridge.holo_driver, "HoloLink", FakeHoloLink)
+        p.start(); self.addCleanup(p.stop)
+
+    def played(self):
+        return [b["media_name"] + (" then " + b["then"]["media_name"] if "then" in b else "") for b in FakeHoloLink.sent]
+
+    def test_his_mood_and_its_transitions_play_there(self):
+        self.b.update()
+        self.hook("UserPromptSubmit", "a")
+        self.b.update()
+        self.assertEqual(self.played(), ["idle_qs8x6a0.75.mp4", "idle-to-working_qs8x6a0.75.mp4 then working_qs8x6a0.75.mp4"])
+        self.assertIn("s working", self.b.dev.sent)          # and on the board, as before
+
+    def test_a_clip_the_board_does_not_have_plays_there(self):
+        self.b.update()
+        self.assertTrue(self.b.play("coffee"))
+        self.assertEqual(self.played()[-1], "coffee_qs8x6a0.75.mp4 then idle_qs8x6a0.75.mp4")
+
+    def test_without_holo_url_nothing_goes_there(self):
+        os.remove(bridge.CONFIG_FILE)
+        self.b.update()
+        self.assertEqual(self.played(), [])
+        self.assertIsNone(self.b.play("coffee"))
+
 if __name__ == "__main__":
     unittest.main()

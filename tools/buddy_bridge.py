@@ -33,6 +33,11 @@ He also has a little ocarina voice that plays on the Mac's speakers (class Sound
 come from tools/make_sounds.py and which moments make a sound lives in ~/.desk-buddy/sounds.json
 ("enabled" is the master switch; Claude Switcher's right-click menu flips it).
 
+With "holo_url" in config.json, e.g. "http://holo.local:8095", he is also on a Looking Glass, through
+HoloPi: tools/holo_driver.py routes him there as the board routes him, with the quilt videos that
+tools/export_quilt.py bakes into ~/.desk-buddy/quilts and tools/holo_sync.py uploads. The board does not
+need to be there.
+
 It sends a heartbeat ("h", which also carries the time of day) every 15 s; without it the board
 goes its own way after a minute and shows he's not connected. Session state is kept in
 ~/.desk-buddy/state.json across restarts.
@@ -46,6 +51,9 @@ Install as a login item with tools/install_bridge.sh.
 """
 import glob, http.server, json, logging, logging.handlers, os, random, re, subprocess, sys, threading, time, wave
 import serial
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import holo_driver   # noqa: E402  next to this file, in the repo and once installed
 
 HTTP_PORT = 47823
 HOME = os.environ.get("DESKBUDDY_HOME") or os.path.expanduser("~/.desk-buddy")   # tests point this elsewhere
@@ -678,6 +686,8 @@ def usage_colour(frac):
 class Buddy:
     def __init__(self, dev=None, focus=None, sounds=None, start=True):
         self.lock = threading.Lock()
+        self.holo_lock = threading.Lock()  # HoloPi's driver, from the tick and the HTTP threads
+        self.holo_driver, self.holo_url = None, None
         self.sessions = {}            # session_id -> {"state", "t", "cwd"}
         self.last_event = 0.0
         self.sent_mood = None
@@ -1050,11 +1060,36 @@ class Buddy:
         with self.lock:
             return self.mood_locked(time.time())
 
+    # ---- HoloPi: Lump on a Looking Glass too, when config.json has "holo_url" (tools/holo_driver.py) ----
+    def holo(self):
+        """HoloPi's driver, made when config.json first names HoloPi and the quilt videos' index is there; None
+        otherwise. Taking holo_url out of config.json stops it."""
+        url = read_config().get("holo_url")
+        with self.holo_lock:
+            if not url:
+                self.holo_driver = None
+            elif self.holo_driver is None or self.holo_url != url:
+                index = holo_driver.load_index(os.path.join(HOME, "quilts", "index.json"))
+                if index:
+                    self.holo_driver = holo_driver.HoloDriver(index, holo_driver.HoloLink(url).send)
+                    self.holo_url = url
+                    log.info("HoloPi at %s, with %d videos", url, len(index))
+            return self.holo_driver
+
+    def holo_call(self, method, *args):
+        """Calls the driver's set_mood, event or tick, if there is one."""
+        driver = self.holo()
+        if driver is not None:
+            with self.holo_lock:
+                return getattr(driver, method)(*args)
+        return None
+
     # ---- talking to the board ----
     def update(self, force=False):
         with self.lock:
             now = time.time()
             m, c = self.mood_locked(now), self.counts_locked(now)
+        self.holo_call("set_mood", m, now)
         if force or m != self.sent_mood:
             if m == "night" and self.sent_mood not in (None, "night"):
                 night = time.strftime("%Y-%m-%d", time.localtime(now - NIGHT_END * 3600))
@@ -1165,6 +1200,7 @@ class Buddy:
         # an event plays in its home mood (oops: working, hello: idle); the board walks
         # there by itself, so re-assert our mood once it has finished
         self.next_idle = time.time() + random.uniform(*IDLE_EVERY)      # whatever it is, it counts as his thing for this minute
+        self.holo_call("event", name, time.time())
         if self.dev.send("e " + name):
             self.resync_at = time.time() + 8
             return True
@@ -1176,9 +1212,17 @@ class Buddy:
         name = name.strip().lower()
         ev = ANIMATIONS.get(name)
         if ev is None:
+            holo = self.holo()
+            on_holo = holo is not None and name in holo.index
             if name not in clip_names():
-                return None
+                if not on_holo:
+                    return None
+                log.info("play: %s, on the Looking Glass only", name)
+                self.holo_call("event", name, time.time())
+                return True
             if not self.send_clip(name):
+                if on_holo:
+                    self.holo_call("event", name, time.time())
                 return False
             ev = name
         log.info("play: %s", name)
@@ -1288,6 +1332,8 @@ class Buddy:
         except Exception: log.exception("sound tick failed")
         try: self.clip_tick(now)
         except Exception: log.exception("clip tick failed")
+        try: self.holo_call("tick", now)
+        except Exception: log.exception("HoloPi tick failed")
         try: self.save_state()
         except Exception: log.exception("saving %s failed", STATE_FILE)
 

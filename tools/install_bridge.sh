@@ -27,6 +27,7 @@ mkdir -p "$RT" "$HOME/Library/LaunchAgents"
 "$RT/venv/bin/pip" -q install --disable-pip-version-check --upgrade pip
 "$RT/venv/bin/pip" -q install --disable-pip-version-check pyserial icalendar recurring-ical-events
 cp "$ROOT/tools/buddy_bridge.py" "$RT/bridge.py"
+cp "$ROOT/tools/holo_driver.py" "$RT/holo_driver.py"   # Lump on a Looking Glass, when config.json has holo_url
 # Lump's voice: renders the WAVs, and installs sounds.json (which moments make a noise) the first time.
 python3 "$ROOT/tools/make_sounds.py"
 # ...and the sound effects for his tap gags (tap_<gag>.wav), timed to the drawings in design/lump.html.
